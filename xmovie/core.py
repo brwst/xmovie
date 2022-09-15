@@ -10,6 +10,7 @@ import warnings
 from subprocess import PIPE, STDOUT, Popen
 
 import matplotlib.pyplot as plt
+import proplot as pplt
 import xarray as xr
 
 from .presets import basic
@@ -31,7 +32,7 @@ import dask.array as dsa
 
 # is it a good idea to set these here?
 # Needs to be dependent on dpi and videosize
-plt.rcParams.update({"font.size": 14})
+# pplt.rcParams.update({"font.size": 14})
 
 
 # Data treatment
@@ -71,10 +72,10 @@ def _parse_plot_defaults(da, kwargs):
 
 def _check_plotfunc_output(func, da, framedim="time", **kwargs):
     timestep = 0
-    fig = plt.figure()
+    fig = pplt.figure()
     oargs = func(da, fig, timestep, framedim, **kwargs)
     # I just want the number of output args, delete plot
-    plt.close(fig)
+    pplt.close(fig)
     if oargs is None:
         return 0
     else:
@@ -211,23 +212,23 @@ def combine_frames_into_movie(
 
 # def create_frame(pixelwidth, pixelheight, dpi):
 #     """Creates a Figure sized according to the pixeldimensions"""
-#     fig = plt.figure()
+#     fig = pplt.figure()
 #     fig.set_size_inches(pixelwidth / dpi, pixelheight / dpi)
 #     return fig
 
 
-def save_single_frame(fig, frame, odir=None, frame_pattern="frame_%05d.png", dpi=100):
+def save_single_frame(fig, frame, odir=None, frame_pattern="frame_%05d.png"):
     """Saves a single frame of data from an already-created figure and then closes the figure"""
     fig.savefig(
         os.path.join(odir, frame_pattern % (frame)),
-        dpi=dpi,
+        # dpi=dpi,
         facecolor=fig.get_facecolor(),
         transparent=True,
     )
     # I am trying everything to *wipe* this figure, hoping that it could
     # help with the dask glitches I experienced earlier.
     # TBD if this is all needed...how this might affect performance.
-    plt.close(fig)
+    pplt.close(fig)
     del fig
     gc.collect(2)
 
@@ -240,12 +241,13 @@ class Movie:
         da,
         plotfunc=None,
         framedim="time",
-        pixelwidth=1920,
-        pixelheight=1080,
-        dpi=200,
+        # pixelwidth=1920,
+        # pixelheight=1080,
+        # dpi=300,
         frame_pattern="frame_%05d.png",
-        fieldname=None,
+        # fieldname=None,
         input_check=True,
+        fig_kwargs=None,
         **kwargs,
     ):
         """
@@ -260,23 +262,19 @@ class Movie:
             Default: :func:`~xmovie.presets.basic`.
         framedim : str
             Dimension name along which frames will be generated.
-        pixelwidth, pixelheight : int
-            Movie size.
-        dpi : int
-            Movie resolution.
         frame_pattern : str
             Filename pattern when saving frames.
-        fieldname
-            Currently unused.
+        fig_kwargs
+            Passed on to `pplt.figure`.
         **kwargs
             Passed on to `plotfunc`.
         """
 
-        self.pixelwidth = pixelwidth
-        self.pixelheight = pixelheight
-        self.dpi = dpi
-        self.width = self.pixelwidth / self.dpi
-        self.height = self.pixelheight / self.dpi
+        # self.pixelwidth = pixelwidth
+        # self.pixelheight = pixelheight
+        # self.dpi = dpi
+        # self.width = self.pixelwidth / self.dpi
+        # self.height = self.pixelheight / self.dpi
         self.frame_pattern = frame_pattern
         self.data = da
         self.framedim = framedim
@@ -286,6 +284,7 @@ class Movie:
             self.plotfunc = plotfunc
         # set sensible defaults
         self.raw_kwargs = kwargs
+        self.fig_kwargs = fig_kwargs
 
         # Check input
 
@@ -326,7 +325,7 @@ class Movie:
         pp
             Matplotlib primitives returned by the plotting function.
         """
-        fig = plt.figure(figsize=[self.width, self.height])
+        fig = pplt.figure(**self.fig_kwargs)
         # create_frame(self.pixelwidth, self.pixelheight, self.dpi)
         # produce dummy output for ax and pp if the plotfunc does not provide them
         if self.plotfunc_n_outargs == 2:
@@ -350,8 +349,8 @@ class Movie:
         timestep : int
             Timestep (frame) to preview.
         """
-        with plt.rc_context({"figure.dpi": self.dpi, "figure.figsize": [self.width, self.height]}):
-            fig, ax, pp = self.render_single_frame(timestep)
+        # with plt.rc_context({"figure.dpi": self.dpi, "figure.figsize": [self.width, self.height]}):
+        fig, ax, pp = self.render_single_frame(timestep)
 
     def save_frames_serial(self, odir, progress=False):
         """Save movie frames as picture files.
@@ -372,7 +371,7 @@ class Movie:
 
         for timestep in frame_range:
             fig, ax, pp = self.render_single_frame(timestep)
-            save_single_frame(fig, timestep, odir=odir, frame_pattern=self.frame_pattern, dpi=self.dpi)
+            save_single_frame(fig, timestep, odir=odir, frame_pattern=self.frame_pattern)
 
     def save_frames_parallel(self, odir, parallel_compute_kwargs=dict()):
         """
@@ -415,7 +414,7 @@ class Movie:
             )  # get index of chunk in framedim
 
             fig, ax, pp = self.render_single_frame(timestep)
-            save_single_frame(fig, timestep, odir=odir, frame_pattern=self.frame_pattern, dpi=self.dpi)
+            save_single_frame(fig, timestep, odir=odir, frame_pattern=self.frame_pattern)
 
             return time_of_chunk
 
@@ -437,7 +436,7 @@ class Movie:
         parallel=False,
         parallel_compute_kwargs=dict(),
         framerate=15,
-        ffmpeg_options="-c:v libx264 -preset veryslow -crf 10 -pix_fmt yuv420p",
+        ffmpeg_options="-c:v libx264 -preset veryslow -vf 'pad=ceil(iw/2)*2:ceil(ih/2)*2' -crf 10 -pix_fmt yuv420p",
         gif_palette=False,
         gif_resolution_factor=0.5,
         gif_framerate=10,
